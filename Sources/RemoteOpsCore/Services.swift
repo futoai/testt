@@ -289,6 +289,7 @@ public struct ECSExecTarget: Identifiable, Equatable, Codable, Sendable {
 
 public protocol AWSECSService: Sendable {
     func clusters(profile: AWSProfile, region: String) async throws -> [String]
+    func services(profile: AWSProfile, region: String, cluster: String) async throws -> [String]
     func tasks(profile: AWSProfile, region: String, cluster: String, service: String?) async throws -> [String]
     func containers(profile: AWSProfile, region: String, cluster: String, task: String) async throws -> [String]
 }
@@ -298,6 +299,17 @@ public struct MockAWSECSService: AWSECSService {
 
     public func clusters(profile: AWSProfile, region: String) async throws -> [String] {
         ["core-cluster", "batch-cluster"]
+    }
+
+    public func services(profile: AWSProfile, region: String, cluster: String) async throws -> [String] {
+        switch cluster {
+        case "core-cluster":
+            return ["api", "worker"]
+        case "batch-cluster":
+            return ["batch-jobs"]
+        default:
+            return []
+        }
     }
 
     public func tasks(profile: AWSProfile, region: String, cluster: String, service: String?) async throws -> [String] {
@@ -313,6 +325,8 @@ public enum ECSSelectionState: Equatable, Sendable {
     case idle
     case loadingClusters
     case selectingCluster([String])
+    case loadingServices(cluster: String)
+    case selectingService(cluster: String, services: [String])
     case loadingTasks(cluster: String)
     case selectingTask(cluster: String, tasks: [String])
     case loadingContainers(cluster: String, task: String)
@@ -338,6 +352,14 @@ public struct ECSSelectionStateMachine: Sendable {
 
     public mutating func startTaskLoad(cluster: String) {
         state = .loadingTasks(cluster: cluster)
+    }
+
+    public mutating func startServiceLoad(cluster: String) {
+        state = .loadingServices(cluster: cluster)
+    }
+
+    public mutating func servicesLoaded(cluster: String, services: [String]) {
+        state = .selectingService(cluster: cluster, services: services)
     }
 
     public mutating func tasksLoaded(cluster: String, tasks: [String]) {

@@ -296,6 +296,12 @@ extension RemoteOpsCoreTests {
         machine.clustersLoaded(["core-cluster"])
         #expect(machine.state == .selectingCluster(["core-cluster"]))
 
+        machine.startServiceLoad(cluster: "core-cluster")
+        #expect(machine.state == .loadingServices(cluster: "core-cluster"))
+
+        machine.servicesLoaded(cluster: "core-cluster", services: ["api"])
+        #expect(machine.state == .selectingService(cluster: "core-cluster", services: ["api"]))
+
         machine.startTaskLoad(cluster: "core-cluster")
         #expect(machine.state == .loadingTasks(cluster: "core-cluster"))
 
@@ -342,4 +348,33 @@ extension RemoteOpsCoreTests {
         machine.signOut()
         #expect(machine.state == .signedOut)
     }
+    @Test
+    func ecsResolutionSelectsServiceWhenNotProvided() async throws {
+        var app = RemoteOpsApp()
+        let profile = AWSProfile(displayName: "prod", defaultRegion: "us-east-1", tokenState: .signedIn)
+        _ = app.upsertAWSProfile(profile)
+        app.selectAWSProfile(id: profile.id)
+
+        let target = try await app.resolveECSTarget(region: "us-east-1", preferredCluster: "core-cluster")
+        #expect(target.service == "api")
+    }
+
+    @Test
+    func keysAndConfigsBrowserSupportsMetadataSearch() {
+        var app = RemoteOpsApp()
+        app.upsertSSHConfig(
+            SSHConfigMetadata(alias: "prod-app", hostname: "prod.internal", username: "ubuntu", linkedKeyLabel: "main")
+        )
+        app.upsertSSHKey(
+            SSHKeyMetadata(label: "main", fingerprint: "SHA256:abc", algorithm: "ed25519", source: "import")
+        )
+        app.upsertGPGKey(
+            GPGKeyMetadata(label: "ops-signing", fingerprint: "ABCD1234", capabilities: ["sign", "encrypt"])
+        )
+
+        #expect(app.browseSSHConfigs(searchText: "prod").count == 1)
+        #expect(app.browseSSHKeys(searchText: "ed25519").count == 1)
+        #expect(app.browseGPGKeys(searchText: "encrypt").count == 1)
+    }
+
 }
