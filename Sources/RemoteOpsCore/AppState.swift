@@ -144,6 +144,10 @@ public struct RemoteOpsApp: Sendable {
     }
 
     public func askAI(intent: String) async throws -> AIProposal {
+        try await askAI(intent: intent, privacyMode: .fullContext)
+    }
+
+    public func askAI(intent: String, privacyMode: PrivacyMode) async throws -> AIProposal {
         guard let session = currentSession else {
             throw RemoteOpsError.noSessionSelected
         }
@@ -154,7 +158,9 @@ public struct RemoteOpsApp: Sendable {
             environmentName: environment?.name,
             shell: environment?.shell ?? "/bin/bash"
         )
-        return try await aiProvider.proposeCommand(intent: intent, context: context)
+
+        let sanitizedIntent = sanitizeForPrivacy(intent, mode: privacyMode)
+        return try await aiProvider.proposeCommand(intent: sanitizedIntent, context: context)
     }
 
     public mutating func run(command: String, source: CommandSource, risk: RiskLevel) throws {
@@ -236,6 +242,20 @@ public struct RemoteOpsApp: Sendable {
 
     public func deleteProviderAPIKey(provider: String) throws {
         try apiKeyStore.deleteAPIKey(for: provider)
+    }
+
+
+    private func sanitizeForPrivacy(_ intent: String, mode: PrivacyMode) -> String {
+        switch mode {
+        case .fullContext:
+            return intent
+        case .minimalContext:
+            return intent.replacingOccurrences(of: "token", with: "[REDACTED_TOKEN]", options: .caseInsensitive)
+        case .noHistoryContext:
+            return intent + "\nContext: ignore prior command history."
+        case .noOutputUpload:
+            return intent + "\nContext: do not rely on command output logs."
+        }
     }
 
     public var currentSession: Session? {
