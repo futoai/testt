@@ -420,4 +420,54 @@ extension RemoteOpsCoreTests {
         }
     }
 
+    @Test
+    func runAICommandPersistsPromptAndEditState() throws {
+        var app = RemoteOpsApp()
+        _ = app.addSession(Session(name: "prod", type: .ssh, host: "prod.internal", username: "ubuntu"))
+
+        let proposal = AIProposal(command: "df -h", explanation: "disk", risk: .low)
+        try app.runAICommand(prompt: "check disk", proposal: proposal)
+        try app.runAICommand(prompt: "check logs", proposal: proposal, editedCommand: "df -h /var")
+
+        let history = app.globalHistory()
+        #expect(history.count == 2)
+        #expect(history[0].nlPrompt == "check logs")
+        #expect(history[0].wasEdited == true)
+        #expect(history[1].nlPrompt == "check disk")
+        #expect(history[1].wasEdited == false)
+    }
+
+    @Test
+    func runHistoryCommandCreatesHistorySourceEntry() throws {
+        var app = RemoteOpsApp()
+        let sessionID = app.addSession(Session(name: "prod", type: .ssh, host: "prod.internal", username: "ubuntu"))
+
+        try app.run(command: "df -h", source: .typed)
+        let priorID = try #require(app.searchHistory(scope: .session(sessionID)).first?.id)
+
+        try app.runHistoryCommand(recordID: priorID, editedCommand: "df -h /var")
+
+        let history = app.searchHistory(scope: .session(sessionID))
+        #expect(history.count == 2)
+        #expect(history[0].source == .history)
+        #expect(history[0].command == "df -h /var")
+        #expect(history[0].wasEdited == true)
+    }
+
+    @Test
+    func productionConfirmationRequiredForHighRiskCommands() throws {
+        var app = RemoteOpsApp()
+        let sessionID = app.addSession(Session(name: "prod", type: .ssh, host: "prod.internal", username: "ubuntu"))
+        let envID = app.addEnvironment(EnvironmentProfile(name: "production", sessionID: sessionID, label: .production))
+        app.selectEnvironment(id: envID)
+
+        #expect(throws: RemoteOpsError.productionConfirmationMismatch(expected: "production")) {
+            try app.validateExecutionApproval(command: "rm -rf /", typedConfirmation: "prod")
+        }
+
+        try app.validateExecutionApproval(command: "rm -rf /", typedConfirmation: "production")
+        try app.validateExecutionApproval(command: "pwd", typedConfirmation: nil)
+    }
+
+
 }
