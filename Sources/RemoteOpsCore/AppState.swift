@@ -6,27 +6,36 @@ public struct RemoteOpsApp: Sendable {
     public private(set) var history: InMemoryHistoryStore
     public private(set) var selectedSessionID: Session.ID?
     public private(set) var selectedEnvironmentID: EnvironmentProfile.ID?
+    public private(set) var awsProfiles: [AWSProfile]
+    public private(set) var selectedAWSProfileID: AWSProfile.ID?
+    public private(set) var selectedECSExecTarget: ECSExecTarget?
 
     private let aiProvider: AIProvider
     private let clipboardParser: ClipboardCommandParser
     private let riskClassifier: CommandRiskClassifier
     private let apiKeyStore: APIKeyStore
+    private let ecsService: AWSECSService
 
     public init(
         aiProvider: AIProvider = MockAIProvider(),
         clipboardParser: ClipboardCommandParser = ClipboardCommandParser(),
         riskClassifier: CommandRiskClassifier = CommandRiskClassifier(),
-        apiKeyStore: APIKeyStore = InMemoryAPIKeyStore()
+        apiKeyStore: APIKeyStore = InMemoryAPIKeyStore(),
+        ecsService: AWSECSService = MockAWSECSService()
     ) {
         self.sessions = []
         self.environments = []
         self.history = InMemoryHistoryStore()
         self.selectedSessionID = nil
         self.selectedEnvironmentID = nil
+        self.awsProfiles = []
+        self.selectedAWSProfileID = nil
+        self.selectedECSExecTarget = nil
         self.aiProvider = aiProvider
         self.clipboardParser = clipboardParser
         self.riskClassifier = riskClassifier
         self.apiKeyStore = apiKeyStore
+        self.ecsService = ecsService
     }
 
     @discardableResult
@@ -276,6 +285,68 @@ public struct RemoteOpsApp: Sendable {
     }
 
 
+
+    @discardableResult
+    public mutating func upsertAWSProfile(_ profile: AWSProfile) -> AWSProfile.ID {
+        if let index = awsProfiles.firstIndex(where: { $0.id == profile.id }) {
+            awsProfiles[index] = profile
+        } else {
+            awsProfiles.append(profile)
+        }
+
+        if selectedAWSProfileID == nil {
+            selectedAWSProfileID = profile.id
+        }
+        return profile.id
+    }
+
+    public mutating func selectAWSProfile(id: AWSProfile.ID?) {
+        selectedAWSProfileID = id
+    }
+
+    public func currentAWSProfile() -> AWSProfile? {
+        guard let selectedAWSProfileID else { return nil }
+        return awsProfiles.first(where: { $0.id == selectedAWSProfileID })
+    }
+
+    public mutating func resolveECSTarget(
+        region: String,
+        service: String? = nil,
+        preferredCluster: String? = nil,
+        preferredTask: String? = nil,
+        preferredContainer: String? = nil
+    ) async throws -> ECSExecTarget {
+        guard let profile = currentAWSProfile() else {
+            throw RemoteOpsError.awsProfileNotFound
+        }
+
+        let clusters = try await ecsService.clusters(profile: profile, region: region)
+        guard let cluster = preferredCluster ?? clusters.first else {
+            throw RemoteOpsError.noECSTargetsAvailable
+        }
+
+        let tasks = try await ecsService.tasks(profile: profile, region: region, cluster: cluster, service: service)
+        guard let task = preferredTask ?? tasks.first else {
+            throw RemoteOpsError.noECSTargetsAvailable
+        }
+
+        let containers = try await ecsService.containers(profile: profile, region: region, cluster: cluster, task: task)
+        guard let container = preferredContainer ?? containers.first else {
+            throw RemoteOpsError.noECSTargetsAvailable
+        }
+
+        let target = ECSExecTarget(
+            awsProfileID: profile.id,
+            region: region,
+            cluster: cluster,
+            service: service,
+            task: task,
+            container: container
+        )
+        selectedECSExecTarget = target
+        return target
+    }
+
     private func sanitizeForPrivacy(_ intent: String, mode: PrivacyMode) -> String {
         switch mode {
         case .fullContext:
@@ -306,4 +377,6 @@ public enum RemoteOpsError: Error, Equatable {
     case clipboardDidNotContainCommand
     case sessionNotFound
     case environmentNotFound
+    case awsProfileNotFound
+    case noECSTargetsAvailable
 }
