@@ -232,6 +232,37 @@ public struct RemoteOpsApp: Sendable {
         history.restore(id: id)
     }
 
+    public mutating func pinHistoryEntry(id: CommandRecord.ID, pinned: Bool) {
+        history.pin(id: id, pinned: pinned)
+    }
+
+    public mutating func tagHistoryEntry(id: CommandRecord.ID, tags: [String]) {
+        history.setTags(id: id, tags: tags)
+    }
+
+    public mutating func hardDeleteHistoryEntry(id: CommandRecord.ID) {
+        history.hardDelete(id: id)
+    }
+
+    public func searchHistory(scope: HistoryScope = .global, query: HistoryQuery = HistoryQuery()) -> [CommandRecord] {
+        history.search(scope: scope, query: query)
+    }
+
+    public func filteredEnvironments(_ filter: EnvironmentFilter = EnvironmentFilter()) -> [EnvironmentProfile] {
+        environments.filter { environment in
+            if let label = filter.label, environment.label != label {
+                return false
+            }
+            if let tag = filter.tag, !environment.tags.contains(tag) {
+                return false
+            }
+            if filter.favoritesOnly, !environment.isFavorite {
+                return false
+            }
+            return true
+        }
+    }
+
     public func saveProviderAPIKey(_ apiKey: String, provider: String) throws {
         try apiKeyStore.save(apiKey: apiKey, for: provider)
     }

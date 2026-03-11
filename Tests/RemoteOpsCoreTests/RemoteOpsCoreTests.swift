@@ -196,4 +196,81 @@ extension RemoteOpsCoreTests {
         machine.reset()
         #expect(machine.state == .idle)
     }
+
+    @Test
+    func historySearchPinTagAndHardDeleteWorkflow() throws {
+        var app = RemoteOpsApp()
+        let sessionID = app.addSession(Session(name: "prod", type: .ssh, host: "prod.internal", username: "ubuntu"))
+
+        try app.run(command: "sudo systemctl restart api", source: .typed)
+        try app.run(command: "df -h", source: .askAI)
+
+        let all = app.searchHistory(scope: .session(sessionID))
+        #expect(all.count == 2)
+
+        let restartOnly = app.searchHistory(
+            scope: .session(sessionID),
+            query: HistoryQuery(text: "restart", source: .typed, risk: .medium)
+        )
+        #expect(restartOnly.count == 1)
+
+        let recordID = try #require(restartOnly.first?.id)
+        app.pinHistoryEntry(id: recordID, pinned: true)
+        app.tagHistoryEntry(id: recordID, tags: ["ops", "incident"])
+
+        let tagged = app.searchHistory(
+            scope: .global,
+            query: HistoryQuery(tag: "ops")
+        )
+        #expect(tagged.count == 1)
+        #expect(tagged[0].pinned == true)
+
+        app.hardDeleteHistoryEntry(id: recordID)
+        let remaining = app.searchHistory(scope: .session(sessionID))
+        #expect(remaining.count == 1)
+    }
+
+    @Test
+    func environmentFilteringSupportsLabelTagAndFavorite() {
+        var app = RemoteOpsApp()
+        let sessionID = app.addSession(Session(name: "infra", type: .ssh, host: "localhost", username: "me"))
+
+        _ = app.addEnvironment(
+            EnvironmentProfile(name: "prod", sessionID: sessionID, label: .production, isFavorite: true, tags: ["critical"])
+        )
+        _ = app.addEnvironment(
+            EnvironmentProfile(name: "dev", sessionID: sessionID, label: .development, isFavorite: false, tags: ["sandbox"])
+        )
+
+        let prod = app.filteredEnvironments(EnvironmentFilter(label: .production))
+        #expect(prod.count == 1)
+
+        let criticalFavorites = app.filteredEnvironments(EnvironmentFilter(tag: "critical", favoritesOnly: true))
+        #expect(criticalFavorites.count == 1)
+        #expect(criticalFavorites[0].name == "prod")
+    }
+
+    @Test
+    func awsAuthStateMachineTransitions() {
+        var machine = AWSAuthStateMachine()
+        #expect(machine.state == .signedOut)
+
+        machine.startSignIn()
+        #expect(machine.state == .signingIn)
+
+        machine.signInSucceeded()
+        #expect(machine.state == .signedIn)
+
+        machine.setExpiringSoon()
+        #expect(machine.state == .expiringSoon)
+
+        machine.expire()
+        #expect(machine.state == .expired)
+
+        machine.fail("callback error")
+        #expect(machine.state == .failed("callback error"))
+
+        machine.signOut()
+        #expect(machine.state == .signedOut)
+    }
 }

@@ -149,6 +149,40 @@ public enum SessionConnectionState: Equatable, Sendable {
     case failed(String)
 }
 
+public enum AWSTokenState: String, Codable, Sendable {
+    case signedOut
+    case signingIn
+    case signedIn
+    case expiringSoon
+    case expired
+    case failed
+}
+
+public struct AWSProfile: Identifiable, Equatable, Codable, Sendable {
+    public let id: UUID
+    public var displayName: String
+    public var accountHint: String?
+    public var roleHint: String?
+    public var defaultRegion: String
+    public var tokenState: AWSTokenState
+
+    public init(
+        id: UUID = UUID(),
+        displayName: String,
+        accountHint: String? = nil,
+        roleHint: String? = nil,
+        defaultRegion: String,
+        tokenState: AWSTokenState = .signedOut
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.accountHint = accountHint
+        self.roleHint = roleHint
+        self.defaultRegion = defaultRegion
+        self.tokenState = tokenState
+    }
+}
+
 public enum AskAIState: Equatable, Sendable {
     case idle
     case collectingPrompt
