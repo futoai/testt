@@ -7,6 +7,7 @@ public struct RemoteOpsApp: Sendable {
     public private(set) var selectedSessionID: Session.ID?
     public private(set) var selectedEnvironmentID: EnvironmentProfile.ID?
     public private(set) var awsProfiles: [AWSProfile]
+    public private(set) var authProfiles: [AuthProfile]
     public private(set) var selectedAWSProfileID: AWSProfile.ID?
     public private(set) var selectedECSExecTarget: ECSExecTarget?
     public private(set) var sshConfigs: [SSHConfigMetadata]
@@ -42,6 +43,7 @@ public struct RemoteOpsApp: Sendable {
         self.selectedSessionID = nil
         self.selectedEnvironmentID = nil
         self.awsProfiles = []
+        self.authProfiles = []
         self.selectedAWSProfileID = nil
         self.selectedECSExecTarget = nil
         self.sshConfigs = []
@@ -467,6 +469,20 @@ public struct RemoteOpsApp: Sendable {
 
     public mutating func selectAWSProfile(id: AWSProfile.ID?) {
         selectedAWSProfileID = id
+    }
+
+    @discardableResult
+    public mutating func upsertAuthProfile(_ profile: AuthProfile) -> AuthProfile.ID {
+        if let index = authProfiles.firstIndex(where: { $0.id == profile.id }) {
+            authProfiles[index] = profile
+        } else {
+            authProfiles.append(profile)
+        }
+        return profile.id
+    }
+
+    public mutating func deleteAuthProfile(id: AuthProfile.ID) {
+        authProfiles.removeAll { $0.id == id }
     }
 
     public func currentAWSProfile() -> AWSProfile? {
