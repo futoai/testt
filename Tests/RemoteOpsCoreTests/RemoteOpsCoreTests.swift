@@ -123,6 +123,30 @@ struct RemoteOpsCoreTests {
         #expect(app.requiresAdditionalConfirmation(for: "pwd") == false)
     }
 
+    @Test
+    func updateDeleteAndAttachEnvironmentWorkflows() throws {
+        var app = RemoteOpsApp(idGenerator: IncrementingIDGenerator())
+        let sessionA = try app.createSession(name: "a", type: .ssh, host: "a.internal", username: "ops")
+        let sessionB = try app.createSession(name: "b", type: .ssh, host: "b.internal", username: "ops")
+        let envID = app.addEnvironment(EnvironmentProfile(id: UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!, name: "dev", sessionID: sessionA))
+
+        var updated = try #require(app.environments.first(where: { $0.id == envID }))
+        updated.name = "development"
+        try app.updateEnvironment(updated)
+        #expect(app.environments.first(where: { $0.id == envID })?.name == "development")
+
+        try app.attachEnvironment(id: envID, to: sessionB)
+        #expect(app.environments.first(where: { $0.id == envID })?.sessionID == sessionB)
+        #expect(app.sessions.first(where: { $0.id == sessionA })?.environmentIDs.contains(envID) == false)
+        #expect(app.sessions.first(where: { $0.id == sessionB })?.environmentIDs.contains(envID) == true)
+
+        app.selectSession(id: sessionB)
+        app.selectEnvironment(id: envID)
+        app.deleteEnvironment(id: envID)
+        #expect(app.environments.contains(where: { $0.id == envID }) == false)
+        #expect(app.selectedEnvironmentID == nil)
+    }
+
 
 
     @Test

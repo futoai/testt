@@ -160,6 +160,51 @@ public struct RemoteOpsApp: Sendable {
         return environment.id
     }
 
+    public mutating func updateEnvironment(_ environment: EnvironmentProfile) throws {
+        guard let index = environments.firstIndex(where: { $0.id == environment.id }) else {
+            throw RemoteOpsError.environmentNotFound
+        }
+
+        let priorSessionID = environments[index].sessionID
+        environments[index] = environment
+
+        if priorSessionID != environment.sessionID {
+            if let oldSessionIndex = sessions.firstIndex(where: { $0.id == priorSessionID }) {
+                sessions[oldSessionIndex].environmentIDs.removeAll { $0 == environment.id }
+            }
+
+            if let newSessionIndex = sessions.firstIndex(where: { $0.id == environment.sessionID }) {
+                if !sessions[newSessionIndex].environmentIDs.contains(environment.id) {
+                    sessions[newSessionIndex].environmentIDs.append(environment.id)
+                }
+            }
+        }
+    }
+
+    public mutating func deleteEnvironment(id: EnvironmentProfile.ID) {
+        guard let environment = environments.first(where: { $0.id == id }) else {
+            return
+        }
+
+        environments.removeAll { $0.id == id }
+        if let sessionIndex = sessions.firstIndex(where: { $0.id == environment.sessionID }) {
+            sessions[sessionIndex].environmentIDs.removeAll { $0 == id }
+        }
+
+        if selectedEnvironmentID == id {
+            selectedEnvironmentID = environments.first(where: { $0.sessionID == selectedSessionID })?.id
+        }
+    }
+
+    public mutating func attachEnvironment(id: EnvironmentProfile.ID, to sessionID: Session.ID) throws {
+        guard var environment = environments.first(where: { $0.id == id }) else {
+            throw RemoteOpsError.environmentNotFound
+        }
+
+        environment.sessionID = sessionID
+        try updateEnvironment(environment)
+    }
+
     @discardableResult
     public mutating func cloneEnvironment(id: EnvironmentProfile.ID, named name: String? = nil) throws -> EnvironmentProfile.ID {
         guard let environment = environments.first(where: { $0.id == id }) else {
