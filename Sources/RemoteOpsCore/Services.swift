@@ -140,6 +140,34 @@ public struct AskAIStateMachine: Sendable {
     }
 }
 
+public enum HistoryScope: Sendable {
+    case session(Session.ID)
+    case environment(EnvironmentProfile.ID)
+    case global
+}
+
+public struct HistoryQuery: Sendable {
+    public var text: String?
+    public var source: CommandSource?
+    public var risk: RiskLevel?
+    public var tag: String?
+    public var includeDeleted: Bool
+
+    public init(
+        text: String? = nil,
+        source: CommandSource? = nil,
+        risk: RiskLevel? = nil,
+        tag: String? = nil,
+        includeDeleted: Bool = false
+    ) {
+        self.text = text
+        self.source = source
+        self.risk = risk
+        self.tag = tag
+        self.includeDeleted = includeDeleted
+    }
+}
+
 public struct InMemoryHistoryStore: Sendable {
     private(set) var records: [CommandRecord] = []
 
@@ -164,6 +192,15 @@ public struct InMemoryHistoryStore: Sendable {
         records[index].pinned = pinned
     }
 
+    public mutating func setTags(id: CommandRecord.ID, tags: [String]) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        records[index].tags = tags
+    }
+
+    public mutating func hardDelete(id: CommandRecord.ID) {
+        records.removeAll { $0.id == id }
+    }
+
     public func sessionHistory(sessionID: Session.ID, includeDeleted: Bool = false) -> [CommandRecord] {
         records
             .filter { $0.sessionID == sessionID }
@@ -183,6 +220,78 @@ public struct InMemoryHistoryStore: Sendable {
             .filter { includeDeleted || $0.deletedAt == nil }
             .sorted { $0.timestamp > $1.timestamp }
     }
+
+    public func search(scope: HistoryScope, query: HistoryQuery = HistoryQuery()) -> [CommandRecord] {
+        let base: [CommandRecord] = switch scope {
+        case let .session(sessionID):
+            sessionHistory(sessionID: sessionID, includeDeleted: query.includeDeleted)
+        case let .environment(environmentID):
+            environmentHistory(environmentID: environmentID, includeDeleted: query.includeDeleted)
+        case .global:
+            globalHistory(includeDeleted: query.includeDeleted)
+        }
+
+        return base.filter { record in
+            if let text = query.text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                let needle = text.lowercased()
+                let matchesCommand = record.command.lowercased().contains(needle)
+                let matchesPrompt = record.nlPrompt?.lowercased().contains(needle) ?? false
+                if !matchesCommand && !matchesPrompt {
+                    return false
+                }
+            }
+
+            if let source = query.source, record.source != source {
+                return false
+            }
+
+            if let risk = query.risk, record.risk != risk {
+                return false
+            }
+
+            if let tag = query.tag, !record.tags.contains(tag) {
+                return false
+            }
+
+            return true
+        }
+    }
+}
+
+public struct EnvironmentFilter: Sendable {
+    public var label: EnvironmentLabel?
+    public var tag: String?
+    public var favoritesOnly: Bool
+
+    public init(label: EnvironmentLabel? = nil, tag: String? = nil, favoritesOnly: Bool = false) {
+        self.label = label
+        self.tag = tag
+        self.favoritesOnly = favoritesOnly
+    }
+}
+
+public enum AWSAuthState: Equatable, Sendable {
+    case signedOut
+    case signingIn
+    case signedIn
+    case expiringSoon
+    case expired
+    case failed(String)
+}
+
+public struct AWSAuthStateMachine: Sendable {
+    public private(set) var state: AWSAuthState
+
+    public init(initialState: AWSAuthState = .signedOut) {
+        self.state = initialState
+    }
+
+    public mutating func startSignIn() { state = .signingIn }
+    public mutating func signInSucceeded() { state = .signedIn }
+    public mutating func setExpiringSoon() { state = .expiringSoon }
+    public mutating func expire() { state = .expired }
+    public mutating func signOut() { state = .signedOut }
+    public mutating func fail(_ message: String) { state = .failed(message) }
 }
 
 public struct CommandRiskClassifier: Sendable {
