@@ -20,6 +20,9 @@ public struct RemoteOpsApp: Sendable {
     private let aiModelSelector: AIModelSelector
     private let apiKeyStore: APIKeyStore
     private let ecsService: AWSECSService
+    private let clock: Clock
+    private let idGenerator: IDGenerator
+    private let telemetry: TelemetrySink?
 
     public init(
         aiProvider: AIProvider = MockAIProvider(),
@@ -28,11 +31,14 @@ public struct RemoteOpsApp: Sendable {
         sessionValidator: SessionValidator = SessionValidator(),
         aiModelSelector: AIModelSelector = AIModelSelector(),
         apiKeyStore: APIKeyStore = InMemoryAPIKeyStore(),
-        ecsService: AWSECSService = MockAWSECSService()
+        ecsService: AWSECSService = MockAWSECSService(),
+        clock: Clock = SystemClock(),
+        idGenerator: IDGenerator = DefaultIDGenerator(),
+        telemetry: TelemetrySink? = nil
     ) {
         self.sessions = []
         self.environments = []
-        self.history = InMemoryHistoryStore()
+        self.history = InMemoryHistoryStore(clock: clock)
         self.selectedSessionID = nil
         self.selectedEnvironmentID = nil
         self.awsProfiles = []
@@ -48,6 +54,9 @@ public struct RemoteOpsApp: Sendable {
         self.aiModelSelector = aiModelSelector
         self.apiKeyStore = apiKeyStore
         self.ecsService = ecsService
+        self.clock = clock
+        self.idGenerator = idGenerator
+        self.telemetry = telemetry
     }
 
     @discardableResult
@@ -70,6 +79,7 @@ public struct RemoteOpsApp: Sendable {
     ) throws -> Session.ID {
         try sessionValidator.validate(name: name, host: host, port: port, username: username)
         let session = Session(
+            id: idGenerator.makeUUID(),
             name: name,
             type: type,
             host: host,
@@ -94,6 +104,7 @@ public struct RemoteOpsApp: Sendable {
         }
 
         let copy = Session(
+            id: idGenerator.makeUUID(),
             name: name ?? "\(session.name) Copy",
             type: session.type,
             host: session.host,
@@ -156,6 +167,7 @@ public struct RemoteOpsApp: Sendable {
         }
 
         let clone = EnvironmentProfile(
+            id: idGenerator.makeUUID(),
             name: name ?? "\(environment.name) Copy",
             sessionID: environment.sessionID,
             workingDirectory: environment.workingDirectory,
@@ -211,6 +223,8 @@ public struct RemoteOpsApp: Sendable {
         }
 
         let record = CommandRecord(
+            id: idGenerator.makeUUID(),
+            timestamp: clock.now,
             sessionID: sessionID,
             environmentID: selectedEnvironmentID,
             command: command,
@@ -229,6 +243,8 @@ public struct RemoteOpsApp: Sendable {
         }
 
         let record = CommandRecord(
+            id: idGenerator.makeUUID(),
+            timestamp: clock.now,
             sessionID: sessionID,
             environmentID: selectedEnvironmentID,
             command: commandToRun,
@@ -248,6 +264,7 @@ public struct RemoteOpsApp: Sendable {
         let commandToRun = editedCommand ?? prior.command
         let wasEdited = editedCommand != nil && editedCommand != prior.command
         try run(command: commandToRun, source: .history, risk: riskClassifier.classify(command: commandToRun))
+        telemetry?.record(event: "history.rerun", metadata: ["edited": String(wasEdited)])
 
         guard wasEdited, let newestID = history.records.last?.id else {
             return
@@ -257,6 +274,22 @@ public struct RemoteOpsApp: Sendable {
 
     public mutating func run(command: String, source: CommandSource) throws {
         try run(command: command, source: source, risk: riskClassifier.classify(command: command))
+        telemetry?.record(event: "command.executed", metadata: ["source": source.rawValue])
+    }
+
+    public static func fullMock() -> RemoteOpsApp {
+        var app = RemoteOpsApp()
+        let sessionID = app.addSession(
+            Session(name: "Mock Prod", type: .ssh, host: "mock.internal", username: "ops")
+        )
+        _ = app.addEnvironment(
+            EnvironmentProfile(name: "Production", sessionID: sessionID, label: .production, isFavorite: true)
+        )
+        try? app.run(command: "df -h", source: .askAI)
+        _ = app.upsertAWSProfile(
+            AWSProfile(displayName: "Mock AWS", accountHint: "123456789012", defaultRegion: "us-east-1", tokenState: .signedIn)
+        )
+        return app
     }
 
     public func requiresAdditionalConfirmation(for command: String) -> Bool {

@@ -469,5 +469,31 @@ extension RemoteOpsCoreTests {
         try app.validateExecutionApproval(command: "pwd", typedConfirmation: nil)
     }
 
+    @Test
+    func deterministicClockAndIDGeneratorProduceStableHistoryMetadata() throws {
+        let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
+        let clock = FixedClock(now: fixedNow)
+        let ids = IncrementingIDGenerator(seed: 1)
+        var app = RemoteOpsApp(clock: clock, idGenerator: ids)
+
+        let sessionID = try app.createSession(name: "stable", type: .ssh, host: "stable.local", username: "ops")
+        app.selectSession(id: sessionID)
+        try app.run(command: "ls -la", source: .typed)
+
+        let record = try #require(app.sessionHistory().first)
+        #expect(record.timestamp == fixedNow)
+        #expect(record.id.uuidString.hasSuffix("000000000002"))
+    }
+
+    @Test
+    func fullMockModeSeedsDemoData() {
+        let app = RemoteOpsApp.fullMock()
+
+        #expect(!app.sessions.isEmpty)
+        #expect(!app.environments.isEmpty)
+        #expect(!app.globalHistory().isEmpty)
+        #expect(!app.awsProfiles.isEmpty)
+    }
+
 
 }

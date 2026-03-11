@@ -55,6 +55,103 @@ public struct MockAIProvider: AIProvider {
     }
 }
 
+public protocol Clock: Sendable {
+    var now: Date { get }
+}
+
+public struct SystemClock: Clock {
+    public init() {}
+    public var now: Date { Date() }
+}
+
+public struct FixedClock: Clock {
+    public var now: Date
+
+    public init(now: Date) {
+        self.now = now
+    }
+}
+
+public protocol IDGenerator: Sendable {
+    func makeUUID() -> UUID
+}
+
+public struct DefaultIDGenerator: IDGenerator {
+    public init() {}
+    public func makeUUID() -> UUID { UUID() }
+}
+
+public final class IncrementingIDGenerator: IDGenerator, @unchecked Sendable {
+    private let lock = NSLock()
+    private var counter: UInt64
+
+    public init(seed: UInt64 = 1) {
+        self.counter = seed
+    }
+
+    public func makeUUID() -> UUID {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let value = counter
+        counter += 1
+        return UUID(uuid: (
+            0, 0, 0, 0,
+            0, 0,
+            0, 0,
+            UInt8((value >> 56) & 0xFF), UInt8((value >> 48) & 0xFF), UInt8((value >> 40) & 0xFF), UInt8((value >> 32) & 0xFF),
+            UInt8((value >> 24) & 0xFF), UInt8((value >> 16) & 0xFF), UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF)
+        ))
+    }
+}
+
+public protocol SSHTransport: Sendable {
+    func connect(session: Session) async throws
+    func execute(command: String) async throws -> String
+    func disconnect() async
+}
+
+public protocol ECSExecTransport: Sendable {
+    func openShell(target: ECSExecTarget) async throws
+    func execute(command: String, target: ECSExecTarget) async throws -> String
+}
+
+public protocol SecureSecretsStore: Sendable {
+    func saveSecret(_ value: String, key: String) throws
+    func loadSecret(key: String) throws -> String?
+    func deleteSecret(key: String) throws
+}
+
+public protocol DatabaseStore: Sendable {
+    func loadHistory() throws -> [CommandRecord]
+    func saveHistory(_ records: [CommandRecord]) throws
+}
+
+public protocol ClipboardService: Sendable {
+    func currentString() -> String?
+}
+
+public protocol AuthWebSession: Sendable {
+    func beginSignIn(url: URL, callbackScheme: String) async throws -> URL
+}
+
+public protocol BiometricGate: Sendable {
+    func authenticate(reason: String) async throws
+}
+
+public protocol TerminalBridge: Sendable {
+    func appendOutput(_ output: String)
+}
+
+public protocol TelemetrySink: Sendable {
+    func record(event: String, metadata: [String: String])
+}
+
+public struct NoOpTelemetrySink: TelemetrySink {
+    public init() {}
+    public func record(event: String, metadata: [String: String]) {}
+}
+
 
 
 public enum PrivacyMode: String, Codable, Sendable {
@@ -170,8 +267,11 @@ public struct HistoryQuery: Sendable {
 
 public struct InMemoryHistoryStore: Sendable {
     private(set) var records: [CommandRecord] = []
+    private let clock: Clock
 
-    public init() {}
+    public init(clock: Clock = SystemClock()) {
+        self.clock = clock
+    }
 
     public mutating func append(_ record: CommandRecord) {
         records.append(record)
@@ -179,7 +279,7 @@ public struct InMemoryHistoryStore: Sendable {
 
     public mutating func softDelete(id: CommandRecord.ID) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
-        records[index].deletedAt = Date()
+        records[index].deletedAt = clock.now
     }
 
     public mutating func restore(id: CommandRecord.ID) {
