@@ -30,7 +30,8 @@ public struct MockAIProvider: AIProvider {
                 command: "df -h",
                 explanation: "Shows disk usage in human-readable format.",
                 risk: .low,
-                alternatives: ["du -sh *"]
+                alternatives: ["du -sh *"],
+                assumptions: ["GNU coreutils-compatible df is available."]
             )
         }
 
@@ -39,7 +40,8 @@ public struct MockAIProvider: AIProvider {
                 command: "sudo systemctl restart app.service",
                 explanation: "Restarts the main application service.",
                 risk: .high,
-                alternatives: ["systemctl status app.service"]
+                alternatives: ["systemctl status app.service"],
+                assumptions: ["User has sudo privileges on the remote host."]
             )
         }
 
@@ -47,8 +49,94 @@ public struct MockAIProvider: AIProvider {
             command: "ls -la",
             explanation: "Lists files including hidden entries for quick inspection.",
             risk: .low,
-            alternatives: ["pwd", "whoami"]
+            alternatives: ["pwd", "whoami"],
+            assumptions: ["Current shell is POSIX-like."]
         )
+    }
+}
+
+
+
+public enum PrivacyMode: String, Codable, Sendable {
+    case fullContext
+    case minimalContext
+    case noHistoryContext
+    case noOutputUpload
+}
+
+public struct SessionConnectionStateMachine: Sendable {
+    public private(set) var state: SessionConnectionState
+
+    public init(initialState: SessionConnectionState = .idle) {
+        self.state = initialState
+    }
+
+    public mutating func startConnection() {
+        state = .connecting
+    }
+
+    public mutating func connectionSucceeded() {
+        state = .connected
+    }
+
+    public mutating func connectionFailed(_ message: String) {
+        state = .failed(message)
+    }
+
+    public mutating func disconnect() {
+        state = .disconnected
+    }
+
+    public mutating func startReconnect() {
+        state = .reconnecting
+    }
+
+    public mutating func authExpired() {
+        state = .authExpired
+    }
+}
+
+public struct AskAIStateMachine: Sendable {
+    public private(set) var state: AskAIState
+
+    public init(initialState: AskAIState = .idle) {
+        self.state = initialState
+    }
+
+    public mutating func beginPromptEntry() {
+        state = .collectingPrompt
+    }
+
+    public mutating func generate() {
+        state = .generating
+    }
+
+    public mutating func generated(_ proposal: AIProposal) {
+        state = .generated(proposal)
+    }
+
+    public mutating func awaitApproval(_ proposal: AIProposal) {
+        state = .awaitingApproval(proposal)
+    }
+
+    public mutating func execute(_ proposal: AIProposal) {
+        state = .executing(proposal)
+    }
+
+    public mutating func complete(recordID: CommandRecord.ID) {
+        state = .completed(recordID)
+    }
+
+    public mutating func validationFailed(_ message: String) {
+        state = .validationFailed(message)
+    }
+
+    public mutating func fail(_ message: String) {
+        state = .failed(message)
+    }
+
+    public mutating func reset() {
+        state = .idle
     }
 }
 

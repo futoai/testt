@@ -122,13 +122,43 @@ public struct AIProposal: Equatable, Codable, Sendable {
     public var explanation: String
     public var risk: RiskLevel
     public var alternatives: [String]
+    public var assumptions: [String]
 
-    public init(command: String, explanation: String, risk: RiskLevel, alternatives: [String] = []) {
+    public init(
+        command: String,
+        explanation: String,
+        risk: RiskLevel,
+        alternatives: [String] = [],
+        assumptions: [String] = []
+    ) {
         self.command = command
         self.explanation = explanation
         self.risk = risk
         self.alternatives = alternatives
+        self.assumptions = assumptions
     }
+}
+
+public enum SessionConnectionState: Equatable, Sendable {
+    case idle
+    case connecting
+    case connected
+    case reconnecting
+    case disconnected
+    case authExpired
+    case failed(String)
+}
+
+public enum AskAIState: Equatable, Sendable {
+    case idle
+    case collectingPrompt
+    case generating
+    case generated(AIProposal)
+    case validationFailed(String)
+    case awaitingApproval(AIProposal)
+    case executing(AIProposal)
+    case completed(CommandRecord.ID)
+    case failed(String)
 }
 
 public struct ClipboardReview: Equatable, Sendable {

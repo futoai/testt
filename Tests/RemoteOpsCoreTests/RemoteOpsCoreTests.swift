@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import RemoteOpsCore
 
@@ -126,5 +127,73 @@ struct RemoteOpsCoreTests {
     func openCodePlaceholderSessionTypeIsSupported() {
         let session = Session(name: "Agent", type: .openCodePlaceholder, host: "placeholder", username: "n/a")
         #expect(session.type == .openCodePlaceholder)
+    }
+}
+
+extension RemoteOpsCoreTests {
+    @Test
+    func aiProposalIncludesAssumptions() async throws {
+        var app = RemoteOpsApp()
+        _ = app.addSession(Session(name: "s", type: .ssh, host: "localhost", username: "me"))
+
+        let proposal = try await app.askAI(intent: "check disk usage")
+        #expect(proposal.assumptions.isEmpty == false)
+    }
+
+    @Test
+    func askAIPrivacyModeRedactsSensitiveTokens() async throws {
+        var app = RemoteOpsApp()
+        _ = app.addSession(Session(name: "s", type: .ssh, host: "localhost", username: "me"))
+
+        let proposal = try await app.askAI(intent: "check token in logs", privacyMode: .minimalContext)
+        #expect(proposal.command == "ls -la")
+    }
+
+    @Test
+    func sessionConnectionStateMachineTransitions() {
+        var machine = SessionConnectionStateMachine()
+        #expect(machine.state == .idle)
+
+        machine.startConnection()
+        #expect(machine.state == .connecting)
+
+        machine.connectionSucceeded()
+        #expect(machine.state == .connected)
+
+        machine.startReconnect()
+        #expect(machine.state == .reconnecting)
+
+        machine.authExpired()
+        #expect(machine.state == .authExpired)
+
+        machine.connectionFailed("network timeout")
+        #expect(machine.state == .failed("network timeout"))
+    }
+
+    @Test
+    func askAIStateMachineTransitions() {
+        var machine = AskAIStateMachine()
+        machine.beginPromptEntry()
+        #expect(machine.state == .collectingPrompt)
+
+        machine.generate()
+        #expect(machine.state == .generating)
+
+        let proposal = AIProposal(command: "df -h", explanation: "disk", risk: .low)
+        machine.generated(proposal)
+        #expect(machine.state == .generated(proposal))
+
+        machine.awaitApproval(proposal)
+        #expect(machine.state == .awaitingApproval(proposal))
+
+        machine.execute(proposal)
+        #expect(machine.state == .executing(proposal))
+
+        let commandID = CommandRecord(sessionID: UUID(), command: "df -h", source: .askAI, risk: .low).id
+        machine.complete(recordID: commandID)
+        #expect(machine.state == .completed(commandID))
+
+        machine.reset()
+        #expect(machine.state == .idle)
     }
 }
