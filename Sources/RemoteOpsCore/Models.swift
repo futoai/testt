@@ -260,3 +260,81 @@ public struct CommandRecord: Identifiable, Equatable, Codable, Sendable {
         self.tags = tags
     }
 }
+
+public struct SSHConfigMetadata: Identifiable, Equatable, Codable, Sendable {
+    public let id: UUID
+    public var alias: String
+    public var hostname: String
+    public var username: String
+    public var port: Int
+    public var linkedKeyLabel: String?
+    public var tags: [String]
+
+    public init(
+        id: UUID = UUID(),
+        alias: String,
+        hostname: String,
+        username: String,
+        port: Int = 22,
+        linkedKeyLabel: String? = nil,
+        tags: [String] = []
+    ) {
+        self.id = id
+        self.alias = alias
+        self.hostname = hostname
+        self.username = username
+        self.port = port
+        self.linkedKeyLabel = linkedKeyLabel
+        self.tags = tags
+    }
+}
+
+public struct SSHKeyMetadata: Identifiable, Equatable, Codable, Sendable {
+    public let id: UUID
+    public var label: String
+    public var fingerprint: String
+    public var algorithm: String
+    public var source: String
+    public var linkedEnvironmentIDs: [EnvironmentProfile.ID]
+    public var lastUsedAt: Date?
+
+    public init(
+        id: UUID = UUID(),
+        label: String,
+        fingerprint: String,
+        algorithm: String,
+        source: String,
+        linkedEnvironmentIDs: [EnvironmentProfile.ID] = [],
+        lastUsedAt: Date? = nil
+    ) {
+        self.id = id
+        self.label = label
+        self.fingerprint = fingerprint
+        self.algorithm = algorithm
+        self.source = source
+        self.linkedEnvironmentIDs = linkedEnvironmentIDs
+        self.lastUsedAt = lastUsedAt
+    }
+}
+
+public struct GPGKeyMetadata: Identifiable, Equatable, Codable, Sendable {
+    public let id: UUID
+    public var label: String
+    public var fingerprint: String
+    public var capabilities: [String]
+    public var usageNotes: String?
+
+    public init(
+        id: UUID = UUID(),
+        label: String,
+        fingerprint: String,
+        capabilities: [String],
+        usageNotes: String? = nil
+    ) {
+        self.id = id
+        self.label = label
+        self.fingerprint = fingerprint
+        self.capabilities = capabilities
+        self.usageNotes = usageNotes
+    }
+}

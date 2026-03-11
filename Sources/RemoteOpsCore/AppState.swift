@@ -9,6 +9,9 @@ public struct RemoteOpsApp: Sendable {
     public private(set) var awsProfiles: [AWSProfile]
     public private(set) var selectedAWSProfileID: AWSProfile.ID?
     public private(set) var selectedECSExecTarget: ECSExecTarget?
+    public private(set) var sshConfigs: [SSHConfigMetadata]
+    public private(set) var sshKeys: [SSHKeyMetadata]
+    public private(set) var gpgKeys: [GPGKeyMetadata]
 
     private let aiProvider: AIProvider
     private let clipboardParser: ClipboardCommandParser
@@ -31,6 +34,9 @@ public struct RemoteOpsApp: Sendable {
         self.awsProfiles = []
         self.selectedAWSProfileID = nil
         self.selectedECSExecTarget = nil
+        self.sshConfigs = []
+        self.sshKeys = []
+        self.gpgKeys = []
         self.aiProvider = aiProvider
         self.clipboardParser = clipboardParser
         self.riskClassifier = riskClassifier
@@ -313,6 +319,7 @@ public struct RemoteOpsApp: Sendable {
         region: String,
         service: String? = nil,
         preferredCluster: String? = nil,
+        preferredService: String? = nil,
         preferredTask: String? = nil,
         preferredContainer: String? = nil
     ) async throws -> ECSExecTarget {
@@ -325,7 +332,10 @@ public struct RemoteOpsApp: Sendable {
             throw RemoteOpsError.noECSTargetsAvailable
         }
 
-        let tasks = try await ecsService.tasks(profile: profile, region: region, cluster: cluster, service: service)
+        let discoveredServices = try await ecsService.services(profile: profile, region: region, cluster: cluster)
+        let selectedService = service ?? preferredService ?? discoveredServices.first
+
+        let tasks = try await ecsService.tasks(profile: profile, region: region, cluster: cluster, service: selectedService)
         guard let task = preferredTask ?? tasks.first else {
             throw RemoteOpsError.noECSTargetsAvailable
         }
@@ -339,12 +349,65 @@ public struct RemoteOpsApp: Sendable {
             awsProfileID: profile.id,
             region: region,
             cluster: cluster,
-            service: service,
+            service: selectedService,
             task: task,
             container: container
         )
         selectedECSExecTarget = target
         return target
+    }
+
+    public mutating func upsertSSHConfig(_ config: SSHConfigMetadata) {
+        if let index = sshConfigs.firstIndex(where: { $0.id == config.id }) {
+            sshConfigs[index] = config
+        } else {
+            sshConfigs.append(config)
+        }
+    }
+
+    public mutating func upsertSSHKey(_ key: SSHKeyMetadata) {
+        if let index = sshKeys.firstIndex(where: { $0.id == key.id }) {
+            sshKeys[index] = key
+        } else {
+            sshKeys.append(key)
+        }
+    }
+
+    public mutating func upsertGPGKey(_ key: GPGKeyMetadata) {
+        if let index = gpgKeys.firstIndex(where: { $0.id == key.id }) {
+            gpgKeys[index] = key
+        } else {
+            gpgKeys.append(key)
+        }
+    }
+
+    public func browseSSHConfigs(searchText: String? = nil) -> [SSHConfigMetadata] {
+        filterMetadata(sshConfigs, searchText: searchText) {
+            [$0.alias, $0.hostname, $0.username] + $0.tags
+        }
+    }
+
+    public func browseSSHKeys(searchText: String? = nil) -> [SSHKeyMetadata] {
+        filterMetadata(sshKeys, searchText: searchText) {
+            [$0.label, $0.fingerprint, $0.algorithm, $0.source]
+        }
+    }
+
+    public func browseGPGKeys(searchText: String? = nil) -> [GPGKeyMetadata] {
+        filterMetadata(gpgKeys, searchText: searchText) {
+            [$0.label, $0.fingerprint] + $0.capabilities + [$0.usageNotes ?? ""]
+        }
+    }
+
+    private func filterMetadata<T>(_ values: [T], searchText: String?, fields: (T) -> [String]) -> [T] {
+        guard let searchText, !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return values
+        }
+
+        let query = searchText.lowercased()
+        return values.filter { value in
+            fields(value).contains { $0.lowercased().contains(query) }
+        }
     }
 
     private func sanitizeForPrivacy(_ intent: String, mode: PrivacyMode) -> String {
