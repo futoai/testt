@@ -83,4 +83,48 @@ struct RemoteOpsCoreTests {
         try app.deleteProviderAPIKey(provider: "openrouter")
         #expect(try app.providerAPIKey(provider: "openrouter") == nil)
     }
+
+    @Test
+    func duplicateAndArchiveSessionWorkflow() throws {
+        var app = RemoteOpsApp()
+        let sessionID = app.addSession(Session(name: "prod", type: .awsECSExec, host: "cluster", username: "ecs-user"))
+
+        try app.setSessionFavorite(id: sessionID, isFavorite: true)
+        try app.setSessionArchived(id: sessionID, isArchived: true)
+        let copyID = try app.duplicateSession(id: sessionID)
+
+        #expect(app.sessions.count == 2)
+        #expect(app.sessions.first(where: { $0.id == sessionID })?.isFavorite == true)
+        #expect(app.sessions.first(where: { $0.id == sessionID })?.isArchived == true)
+        #expect(app.sessions.contains(where: { $0.id == copyID }))
+    }
+
+    @Test
+    func cloneEnvironmentAndProductionConfirmationRules() throws {
+        var app = RemoteOpsApp()
+        let sessionID = app.addSession(Session(name: "prod", type: .ssh, host: "prod.internal", username: "ubuntu"))
+        let envID = app.addEnvironment(
+            EnvironmentProfile(
+                name: "production",
+                sessionID: sessionID,
+                label: .production,
+                preferredAIProvider: "openrouter",
+                riskMode: .strict
+            )
+        )
+
+        let clonedID = try app.cloneEnvironment(id: envID)
+        app.selectEnvironment(id: envID)
+
+        #expect(app.environments.count == 2)
+        #expect(app.environments.contains(where: { $0.id == clonedID }))
+        #expect(app.requiresAdditionalConfirmation(for: "sudo systemctl restart app") == true)
+        #expect(app.requiresAdditionalConfirmation(for: "pwd") == false)
+    }
+
+    @Test
+    func openCodePlaceholderSessionTypeIsSupported() {
+        let session = Session(name: "Agent", type: .openCodePlaceholder, host: "placeholder", username: "n/a")
+        #expect(session.type == .openCodePlaceholder)
+    }
 }

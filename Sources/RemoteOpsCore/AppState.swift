@@ -38,13 +38,96 @@ public struct RemoteOpsApp: Sendable {
         return session.id
     }
 
+    public mutating func updateSession(_ session: Session) throws {
+        guard let index = sessions.firstIndex(where: { $0.id == session.id }) else {
+            throw RemoteOpsError.sessionNotFound
+        }
+        sessions[index] = session
+    }
+
+    @discardableResult
+    public mutating func duplicateSession(id: Session.ID, named name: String? = nil) throws -> Session.ID {
+        guard let session = sessions.first(where: { $0.id == id }) else {
+            throw RemoteOpsError.sessionNotFound
+        }
+
+        let copy = Session(
+            name: name ?? "\(session.name) Copy",
+            type: session.type,
+            host: session.host,
+            port: session.port,
+            username: session.username,
+            tags: session.tags,
+            environmentIDs: [],
+            isFavorite: session.isFavorite,
+            isArchived: session.isArchived
+        )
+        return addSession(copy)
+    }
+
+    public mutating func setSessionFavorite(id: Session.ID, isFavorite: Bool) throws {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else {
+            throw RemoteOpsError.sessionNotFound
+        }
+        sessions[index].isFavorite = isFavorite
+    }
+
+    public mutating func setSessionArchived(id: Session.ID, isArchived: Bool) throws {
+        guard let index = sessions.firstIndex(where: { $0.id == id }) else {
+            throw RemoteOpsError.sessionNotFound
+        }
+        sessions[index].isArchived = isArchived
+    }
+
+    public mutating func deleteSession(id: Session.ID) {
+        sessions.removeAll { $0.id == id }
+        environments.removeAll { $0.sessionID == id }
+
+        if selectedSessionID == id {
+            selectedSessionID = sessions.first?.id
+        }
+
+        guard let selectedSessionID else {
+            selectedEnvironmentID = nil
+            return
+        }
+
+        selectedEnvironmentID = environments.first(where: { $0.sessionID == selectedSessionID })?.id
+    }
+
     @discardableResult
     public mutating func addEnvironment(_ environment: EnvironmentProfile) -> EnvironmentProfile.ID {
         environments.append(environment)
         if selectedEnvironmentID == nil {
             selectedEnvironmentID = environment.id
         }
+        if let sessionIndex = sessions.firstIndex(where: { $0.id == environment.sessionID }) {
+            sessions[sessionIndex].environmentIDs.append(environment.id)
+        }
         return environment.id
+    }
+
+    @discardableResult
+    public mutating func cloneEnvironment(id: EnvironmentProfile.ID, named name: String? = nil) throws -> EnvironmentProfile.ID {
+        guard let environment = environments.first(where: { $0.id == id }) else {
+            throw RemoteOpsError.environmentNotFound
+        }
+
+        let clone = EnvironmentProfile(
+            name: name ?? "\(environment.name) Copy",
+            sessionID: environment.sessionID,
+            workingDirectory: environment.workingDirectory,
+            shell: environment.shell,
+            variables: environment.variables,
+            label: environment.label,
+            preferredAIProvider: environment.preferredAIProvider,
+            preferredModel: environment.preferredModel,
+            riskMode: environment.riskMode,
+            notes: environment.notes,
+            isFavorite: environment.isFavorite,
+            tags: environment.tags
+        )
+        return addEnvironment(clone)
     }
 
     public mutating func selectSession(id: Session.ID) {
@@ -91,6 +174,19 @@ public struct RemoteOpsApp: Sendable {
 
     public mutating func run(command: String, source: CommandSource) throws {
         try run(command: command, source: source, risk: riskClassifier.classify(command: command))
+    }
+
+    public func requiresAdditionalConfirmation(for command: String) -> Bool {
+        let risk = riskClassifier.classify(command: command)
+        if risk == .high {
+            return true
+        }
+
+        guard currentEnvironment?.label == .production else {
+            return false
+        }
+
+        return risk != .low
     }
 
     public func reviewClipboard(_ text: String) -> ClipboardReview? {
@@ -157,4 +253,6 @@ public enum RemoteOpsError: Error, Equatable {
     case noSessionSelected
     case noEnvironmentSelected
     case clipboardDidNotContainCommand
+    case sessionNotFound
+    case environmentNotFound
 }
