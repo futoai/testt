@@ -185,6 +185,12 @@ struct RemoteOpsCoreTests {
         let session = Session(name: "Agent", type: .openCodePlaceholder, host: "placeholder", username: "n/a")
         #expect(session.type == .openCodePlaceholder)
     }
+
+    @Test
+    func savedEnvironmentSessionTypeIsSupported() {
+        let session = Session(name: "Saved Env", type: .savedEnvironment, host: "saved", username: "ops")
+        #expect(session.type == .savedEnvironment)
+    }
 }
 
 extension RemoteOpsCoreTests {
@@ -517,6 +523,24 @@ extension RemoteOpsCoreTests {
         #expect(!app.environments.isEmpty)
         #expect(!app.globalHistory().isEmpty)
         #expect(!app.awsProfiles.isEmpty)
+    }
+
+    @Test
+    func authProfilesCanBeUpsertedAndDeleted() {
+        var app = RemoteOpsApp()
+        let profile = AuthProfile(
+            name: "AWS SSO",
+            provider: "aws-sso",
+            accountHint: "123456789012",
+            secretRef: SecretRef(key: "auth.aws.main", kind: "oauthRefreshToken")
+        )
+
+        _ = app.upsertAuthProfile(profile)
+        #expect(app.authProfiles.count == 1)
+        #expect(app.authProfiles.first?.provider == "aws-sso")
+
+        app.deleteAuthProfile(id: profile.id)
+        #expect(app.authProfiles.isEmpty)
     }
 
 

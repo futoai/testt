@@ -4,7 +4,40 @@ public enum SessionType: String, Codable, Sendable {
     case ssh
     case awsEC2
     case awsECSExec
+    case savedEnvironment
     case openCodePlaceholder
+}
+
+public struct SecretRef: Equatable, Codable, Sendable {
+    public var key: String
+    public var kind: String
+
+    public init(key: String, kind: String) {
+        self.key = key
+        self.kind = kind
+    }
+}
+
+public struct AuthProfile: Identifiable, Equatable, Codable, Sendable {
+    public let id: UUID
+    public var name: String
+    public var provider: String
+    public var accountHint: String?
+    public var secretRef: SecretRef?
+
+    public init(
+        id: UUID = UUID(),
+        name: String,
+        provider: String,
+        accountHint: String? = nil,
+        secretRef: SecretRef? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.provider = provider
+        self.accountHint = accountHint
+        self.secretRef = secretRef
+    }
 }
 
 public enum EnvironmentLabel: String, Codable, Sendable {
