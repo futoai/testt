@@ -16,6 +16,8 @@ public struct RemoteOpsApp: Sendable {
     private let aiProvider: AIProvider
     private let clipboardParser: ClipboardCommandParser
     private let riskClassifier: CommandRiskClassifier
+    private let sessionValidator: SessionValidator
+    private let aiModelSelector: AIModelSelector
     private let apiKeyStore: APIKeyStore
     private let ecsService: AWSECSService
 
@@ -23,6 +25,8 @@ public struct RemoteOpsApp: Sendable {
         aiProvider: AIProvider = MockAIProvider(),
         clipboardParser: ClipboardCommandParser = ClipboardCommandParser(),
         riskClassifier: CommandRiskClassifier = CommandRiskClassifier(),
+        sessionValidator: SessionValidator = SessionValidator(),
+        aiModelSelector: AIModelSelector = AIModelSelector(),
         apiKeyStore: APIKeyStore = InMemoryAPIKeyStore(),
         ecsService: AWSECSService = MockAWSECSService()
     ) {
@@ -40,6 +44,8 @@ public struct RemoteOpsApp: Sendable {
         self.aiProvider = aiProvider
         self.clipboardParser = clipboardParser
         self.riskClassifier = riskClassifier
+        self.sessionValidator = sessionValidator
+        self.aiModelSelector = aiModelSelector
         self.apiKeyStore = apiKeyStore
         self.ecsService = ecsService
     }
@@ -51,6 +57,27 @@ public struct RemoteOpsApp: Sendable {
             selectedSessionID = session.id
         }
         return session.id
+    }
+
+    @discardableResult
+    public mutating func createSession(
+        name: String,
+        type: SessionType,
+        host: String,
+        port: Int = 22,
+        username: String,
+        tags: [String] = []
+    ) throws -> Session.ID {
+        try sessionValidator.validate(name: name, host: host, port: port, username: username)
+        let session = Session(
+            name: name,
+            type: type,
+            host: host,
+            port: port,
+            username: username,
+            tags: tags
+        )
+        return addSession(session)
     }
 
     public mutating func updateSession(_ session: Session) throws {
@@ -276,6 +303,10 @@ public struct RemoteOpsApp: Sendable {
             }
             return true
         }
+    }
+
+    public func resolveAIModel(preferred: String, availableModels: [String], defaultModel: String) throws -> String {
+        try aiModelSelector.resolveModel(preferred: preferred, availableModels: availableModels, fallback: defaultModel)
     }
 
     public func saveProviderAPIKey(_ apiKey: String, provider: String) throws {

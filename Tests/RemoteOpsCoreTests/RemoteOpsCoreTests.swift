@@ -17,7 +17,7 @@ struct RemoteOpsCoreTests {
     @Test
     func runCommandAppendsHistory() throws {
         var app = RemoteOpsApp()
-        let sessionID = app.addSession(Session(name: "s", type: .ssh, host: "localhost", username: "me"))
+        let sessionID = try app.createSession(name: "s", type: .ssh, host: "localhost", username: "me")
 
         try app.run(command: "ls -la", source: .typed)
 
@@ -375,6 +375,49 @@ extension RemoteOpsCoreTests {
         #expect(app.browseSSHConfigs(searchText: "prod").count == 1)
         #expect(app.browseSSHKeys(searchText: "ed25519").count == 1)
         #expect(app.browseGPGKeys(searchText: "encrypt").count == 1)
+    }
+
+    @Test
+    func createSessionValidatesHostPortAndUsername() throws {
+        var app = RemoteOpsApp()
+
+        _ = try app.createSession(name: "infra", type: .ssh, host: "infra.internal", port: 22, username: "ubuntu")
+        #expect(app.sessions.count == 1)
+
+        #expect(throws: ValidationError.invalidHost) {
+            try app.createSession(name: "bad", type: .ssh, host: "bad host", username: "ubuntu")
+        }
+
+        #expect(throws: ValidationError.invalidPort) {
+            try app.createSession(name: "bad", type: .ssh, host: "infra.internal", port: 70_000, username: "ubuntu")
+        }
+
+        #expect(throws: ValidationError.emptyUsername) {
+            try app.createSession(name: "bad", type: .ssh, host: "infra.internal", username: "  ")
+        }
+    }
+
+    @Test
+    func aiModelSelectionFallsBackAndFailsWhenUnavailable() throws {
+        let app = RemoteOpsApp()
+
+        let selected = try app.resolveAIModel(
+            preferred: "openrouter/gpt-4o-mini",
+            availableModels: ["openrouter/gpt-4o-mini", "openrouter/claude-sonnet"],
+            defaultModel: "openrouter/claude-sonnet"
+        )
+        #expect(selected == "openrouter/gpt-4o-mini")
+
+        let fallback = try app.resolveAIModel(
+            preferred: "missing/model",
+            availableModels: ["openrouter/claude-sonnet"],
+            defaultModel: "openrouter/claude-sonnet"
+        )
+        #expect(fallback == "openrouter/claude-sonnet")
+
+        #expect(throws: ValidationError.unsupportedModel("missing/model")) {
+            _ = try app.resolveAIModel(preferred: "missing/model", availableModels: [], defaultModel: "none")
+        }
     }
 
 }

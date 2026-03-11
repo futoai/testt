@@ -450,6 +450,61 @@ public struct CommandRiskClassifier: Sendable {
     }
 }
 
+public enum ValidationError: Error, Equatable {
+    case emptyName
+    case invalidHost
+    case invalidPort
+    case emptyUsername
+    case unsupportedModel(String)
+}
+
+public struct SessionValidator: Sendable {
+    public init() {}
+
+    public func validate(name: String, host: String, port: Int, username: String) throws {
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw ValidationError.emptyName
+        }
+
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedHost.isEmpty || normalizedHost.contains(" ") || normalizedHost.contains("/") {
+            throw ValidationError.invalidHost
+        }
+
+        if port < 1 || port > 65_535 {
+            throw ValidationError.invalidPort
+        }
+
+        if username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw ValidationError.emptyUsername
+        }
+    }
+}
+
+public struct AIModelSelector: Sendable {
+    public init() {}
+
+    public func resolveModel(
+        preferred preferredModel: String,
+        availableModels: [String],
+        fallback defaultModel: String
+    ) throws -> String {
+        if availableModels.contains(preferredModel) {
+            return preferredModel
+        }
+
+        if availableModels.contains(defaultModel) {
+            return defaultModel
+        }
+
+        if let first = availableModels.first {
+            return first
+        }
+
+        throw ValidationError.unsupportedModel(preferredModel)
+    }
+}
+
 public struct ClipboardCommandParser: Sendable {
     private let classifier: CommandRiskClassifier
 
