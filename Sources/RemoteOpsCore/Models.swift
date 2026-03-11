@@ -86,6 +86,20 @@ public struct AIProposal: Equatable, Codable, Sendable {
     }
 }
 
+public struct ClipboardReview: Equatable, Sendable {
+    public var originalText: String
+    public var command: String
+    public var risk: RiskLevel
+    public var warnings: [String]
+
+    public init(originalText: String, command: String, risk: RiskLevel, warnings: [String] = []) {
+        self.originalText = originalText
+        self.command = command
+        self.risk = risk
+        self.warnings = warnings
+    }
+}
+
 public struct CommandRecord: Identifiable, Equatable, Codable, Sendable {
     public let id: UUID
     public let timestamp: Date
