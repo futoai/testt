@@ -123,6 +123,39 @@ struct RemoteOpsCoreTests {
         #expect(app.requiresAdditionalConfirmation(for: "pwd") == false)
     }
 
+
+
+    @Test
+    func sessionStoresLastConnectedAtMetadata() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let session = Session(
+            name: "prod",
+            type: .ssh,
+            host: "prod.internal",
+            username: "ubuntu",
+            lastConnectedAt: now
+        )
+
+        #expect(session.lastConnectedAt == now)
+    }
+
+    @Test
+    func awsProfileAndECSTargetResolutionWorkflow() async throws {
+        var app = RemoteOpsApp()
+        let profile = AWSProfile(displayName: "prod", accountHint: "123456789012", defaultRegion: "us-east-1", tokenState: .signedIn)
+
+        _ = app.upsertAWSProfile(profile)
+        app.selectAWSProfile(id: profile.id)
+
+        let target = try await app.resolveECSTarget(region: "us-east-1")
+
+        #expect(target.awsProfileID == profile.id)
+        #expect(target.cluster == "core-cluster")
+        #expect(target.task == "task-001")
+        #expect(target.container == "app")
+        #expect(app.selectedECSExecTarget == target)
+    }
+
     @Test
     func openCodePlaceholderSessionTypeIsSupported() {
         let session = Session(name: "Agent", type: .openCodePlaceholder, host: "placeholder", username: "n/a")
@@ -248,6 +281,42 @@ extension RemoteOpsCoreTests {
         let criticalFavorites = app.filteredEnvironments(EnvironmentFilter(tag: "critical", favoritesOnly: true))
         #expect(criticalFavorites.count == 1)
         #expect(criticalFavorites[0].name == "prod")
+    }
+
+
+
+    @Test
+    func ecsSelectionStateMachineTransitions() {
+        var machine = ECSSelectionStateMachine()
+        #expect(machine.state == .idle)
+
+        machine.startClusterLoad()
+        #expect(machine.state == .loadingClusters)
+
+        machine.clustersLoaded(["core-cluster"])
+        #expect(machine.state == .selectingCluster(["core-cluster"]))
+
+        machine.startTaskLoad(cluster: "core-cluster")
+        #expect(machine.state == .loadingTasks(cluster: "core-cluster"))
+
+        machine.tasksLoaded(cluster: "core-cluster", tasks: ["task-001"])
+        #expect(machine.state == .selectingTask(cluster: "core-cluster", tasks: ["task-001"]))
+
+        machine.startContainerLoad(cluster: "core-cluster", task: "task-001")
+        #expect(machine.state == .loadingContainers(cluster: "core-cluster", task: "task-001"))
+
+        machine.containersLoaded(cluster: "core-cluster", task: "task-001", containers: ["app"])
+        #expect(machine.state == .selectingContainer(cluster: "core-cluster", task: "task-001", containers: ["app"]))
+
+        let target = ECSExecTarget(
+            awsProfileID: UUID(),
+            region: "us-east-1",
+            cluster: "core-cluster",
+            task: "task-001",
+            container: "app"
+        )
+        machine.complete(target: target)
+        #expect(machine.state == .ready(target))
     }
 
     @Test

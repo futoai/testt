@@ -32,6 +32,7 @@ public struct Session: Identifiable, Equatable, Codable, Sendable {
     public var environmentIDs: [EnvironmentProfile.ID]
     public var isFavorite: Bool
     public var isArchived: Bool
+    public var lastConnectedAt: Date?
 
     public init(
         id: UUID = UUID(),
@@ -43,7 +44,8 @@ public struct Session: Identifiable, Equatable, Codable, Sendable {
         tags: [String] = [],
         environmentIDs: [EnvironmentProfile.ID] = [],
         isFavorite: Bool = false,
-        isArchived: Bool = false
+        isArchived: Bool = false,
+        lastConnectedAt: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -55,6 +57,7 @@ public struct Session: Identifiable, Equatable, Codable, Sendable {
         self.environmentIDs = environmentIDs
         self.isFavorite = isFavorite
         self.isArchived = isArchived
+        self.lastConnectedAt = lastConnectedAt
     }
 }
 

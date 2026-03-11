@@ -258,6 +258,113 @@ public struct InMemoryHistoryStore: Sendable {
     }
 }
 
+
+public struct ECSExecTarget: Identifiable, Equatable, Codable, Sendable {
+    public let id: UUID
+    public var awsProfileID: AWSProfile.ID
+    public var region: String
+    public var cluster: String
+    public var service: String?
+    public var task: String
+    public var container: String
+
+    public init(
+        id: UUID = UUID(),
+        awsProfileID: AWSProfile.ID,
+        region: String,
+        cluster: String,
+        service: String? = nil,
+        task: String,
+        container: String
+    ) {
+        self.id = id
+        self.awsProfileID = awsProfileID
+        self.region = region
+        self.cluster = cluster
+        self.service = service
+        self.task = task
+        self.container = container
+    }
+}
+
+public protocol AWSECSService: Sendable {
+    func clusters(profile: AWSProfile, region: String) async throws -> [String]
+    func tasks(profile: AWSProfile, region: String, cluster: String, service: String?) async throws -> [String]
+    func containers(profile: AWSProfile, region: String, cluster: String, task: String) async throws -> [String]
+}
+
+public struct MockAWSECSService: AWSECSService {
+    public init() {}
+
+    public func clusters(profile: AWSProfile, region: String) async throws -> [String] {
+        ["core-cluster", "batch-cluster"]
+    }
+
+    public func tasks(profile: AWSProfile, region: String, cluster: String, service: String?) async throws -> [String] {
+        ["task-001", "task-002"]
+    }
+
+    public func containers(profile: AWSProfile, region: String, cluster: String, task: String) async throws -> [String] {
+        ["app", "sidecar"]
+    }
+}
+
+public enum ECSSelectionState: Equatable, Sendable {
+    case idle
+    case loadingClusters
+    case selectingCluster([String])
+    case loadingTasks(cluster: String)
+    case selectingTask(cluster: String, tasks: [String])
+    case loadingContainers(cluster: String, task: String)
+    case selectingContainer(cluster: String, task: String, containers: [String])
+    case ready(ECSExecTarget)
+    case failed(String)
+}
+
+public struct ECSSelectionStateMachine: Sendable {
+    public private(set) var state: ECSSelectionState
+
+    public init(initialState: ECSSelectionState = .idle) {
+        self.state = initialState
+    }
+
+    public mutating func startClusterLoad() {
+        state = .loadingClusters
+    }
+
+    public mutating func clustersLoaded(_ clusters: [String]) {
+        state = .selectingCluster(clusters)
+    }
+
+    public mutating func startTaskLoad(cluster: String) {
+        state = .loadingTasks(cluster: cluster)
+    }
+
+    public mutating func tasksLoaded(cluster: String, tasks: [String]) {
+        state = .selectingTask(cluster: cluster, tasks: tasks)
+    }
+
+    public mutating func startContainerLoad(cluster: String, task: String) {
+        state = .loadingContainers(cluster: cluster, task: task)
+    }
+
+    public mutating func containersLoaded(cluster: String, task: String, containers: [String]) {
+        state = .selectingContainer(cluster: cluster, task: task, containers: containers)
+    }
+
+    public mutating func complete(target: ECSExecTarget) {
+        state = .ready(target)
+    }
+
+    public mutating func fail(_ message: String) {
+        state = .failed(message)
+    }
+
+    public mutating func reset() {
+        state = .idle
+    }
+}
+
 public struct EnvironmentFilter: Sendable {
     public var label: EnvironmentLabel?
     public var tag: String?
