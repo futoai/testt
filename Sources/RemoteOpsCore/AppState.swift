@@ -220,6 +220,41 @@ public struct RemoteOpsApp: Sendable {
         history.append(record)
     }
 
+    public mutating func runAICommand(prompt: String, proposal: AIProposal, editedCommand: String? = nil) throws {
+        let commandToRun = editedCommand ?? proposal.command
+        let wasEdited = editedCommand != nil && editedCommand != proposal.command
+
+        guard let sessionID = selectedSessionID else {
+            throw RemoteOpsError.noSessionSelected
+        }
+
+        let record = CommandRecord(
+            sessionID: sessionID,
+            environmentID: selectedEnvironmentID,
+            command: commandToRun,
+            source: .askAI,
+            risk: riskClassifier.classify(command: commandToRun),
+            nlPrompt: prompt,
+            wasEdited: wasEdited
+        )
+        history.append(record)
+    }
+
+    public mutating func runHistoryCommand(recordID: CommandRecord.ID, editedCommand: String? = nil) throws {
+        guard let prior = history.records.first(where: { $0.id == recordID }) else {
+            throw RemoteOpsError.historyEntryNotFound
+        }
+
+        let commandToRun = editedCommand ?? prior.command
+        let wasEdited = editedCommand != nil && editedCommand != prior.command
+        try run(command: commandToRun, source: .history, risk: riskClassifier.classify(command: commandToRun))
+
+        guard wasEdited, let newestID = history.records.last?.id else {
+            return
+        }
+        history.setEdited(id: newestID, wasEdited: true)
+    }
+
     public mutating func run(command: String, source: CommandSource) throws {
         try run(command: command, source: source, risk: riskClassifier.classify(command: command))
     }
@@ -235,6 +270,21 @@ public struct RemoteOpsApp: Sendable {
         }
 
         return risk != .low
+    }
+
+    public func validateExecutionApproval(command: String, typedConfirmation: String?) throws {
+        guard requiresAdditionalConfirmation(for: command) else {
+            return
+        }
+
+        guard currentEnvironment?.label == .production, riskClassifier.classify(command: command) == .high else {
+            return
+        }
+
+        let expected = currentEnvironment?.name ?? ""
+        if typedConfirmation?.trimmingCharacters(in: .whitespacesAndNewlines) != expected {
+            throw RemoteOpsError.productionConfirmationMismatch(expected: expected)
+        }
     }
 
     public func reviewClipboard(_ text: String) -> ClipboardReview? {
@@ -473,4 +523,6 @@ public enum RemoteOpsError: Error, Equatable {
     case environmentNotFound
     case awsProfileNotFound
     case noECSTargetsAvailable
+    case historyEntryNotFound
+    case productionConfirmationMismatch(expected: String)
 }

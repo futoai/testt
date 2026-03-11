@@ -197,6 +197,11 @@ public struct InMemoryHistoryStore: Sendable {
         records[index].tags = tags
     }
 
+    public mutating func setEdited(id: CommandRecord.ID, wasEdited: Bool) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        records[index].wasEdited = wasEdited
+    }
+
     public mutating func hardDelete(id: CommandRecord.ID) {
         records.removeAll { $0.id == id }
     }
