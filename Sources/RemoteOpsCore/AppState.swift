@@ -8,14 +8,25 @@ public struct RemoteOpsApp: Sendable {
     public private(set) var selectedEnvironmentID: EnvironmentProfile.ID?
 
     private let aiProvider: AIProvider
+    private let clipboardParser: ClipboardCommandParser
+    private let riskClassifier: CommandRiskClassifier
+    private let apiKeyStore: APIKeyStore
 
-    public init(aiProvider: AIProvider = MockAIProvider()) {
+    public init(
+        aiProvider: AIProvider = MockAIProvider(),
+        clipboardParser: ClipboardCommandParser = ClipboardCommandParser(),
+        riskClassifier: CommandRiskClassifier = CommandRiskClassifier(),
+        apiKeyStore: APIKeyStore = InMemoryAPIKeyStore()
+    ) {
         self.sessions = []
         self.environments = []
         self.history = InMemoryHistoryStore()
         self.selectedSessionID = nil
         self.selectedEnvironmentID = nil
         self.aiProvider = aiProvider
+        self.clipboardParser = clipboardParser
+        self.riskClassifier = riskClassifier
+        self.apiKeyStore = apiKeyStore
     }
 
     @discardableResult
@@ -78,6 +89,59 @@ public struct RemoteOpsApp: Sendable {
         history.append(record)
     }
 
+    public mutating func run(command: String, source: CommandSource) throws {
+        try run(command: command, source: source, risk: riskClassifier.classify(command: command))
+    }
+
+    public func reviewClipboard(_ text: String) -> ClipboardReview? {
+        clipboardParser.parse(text)
+    }
+
+    public mutating func runClipboardCommand(_ text: String) throws {
+        guard let review = reviewClipboard(text) else {
+            throw RemoteOpsError.clipboardDidNotContainCommand
+        }
+        try run(command: review.command, source: .paste, risk: review.risk)
+    }
+
+    public func sessionHistory() throws -> [CommandRecord] {
+        guard let selectedSessionID else {
+            throw RemoteOpsError.noSessionSelected
+        }
+        return history.sessionHistory(sessionID: selectedSessionID)
+    }
+
+    public func environmentHistory() throws -> [CommandRecord] {
+        guard let selectedEnvironmentID else {
+            throw RemoteOpsError.noEnvironmentSelected
+        }
+        return history.environmentHistory(environmentID: selectedEnvironmentID)
+    }
+
+    public func globalHistory() -> [CommandRecord] {
+        history.globalHistory()
+    }
+
+    public mutating func deleteHistoryEntry(id: CommandRecord.ID) {
+        history.softDelete(id: id)
+    }
+
+    public mutating func restoreHistoryEntry(id: CommandRecord.ID) {
+        history.restore(id: id)
+    }
+
+    public func saveProviderAPIKey(_ apiKey: String, provider: String) throws {
+        try apiKeyStore.save(apiKey: apiKey, for: provider)
+    }
+
+    public func providerAPIKey(provider: String) throws -> String? {
+        try apiKeyStore.loadAPIKey(for: provider)
+    }
+
+    public func deleteProviderAPIKey(provider: String) throws {
+        try apiKeyStore.deleteAPIKey(for: provider)
+    }
+
     public var currentSession: Session? {
         guard let selectedSessionID else { return nil }
         return sessions.first { $0.id == selectedSessionID }
@@ -91,4 +155,6 @@ public struct RemoteOpsApp: Sendable {
 
 public enum RemoteOpsError: Error, Equatable {
     case noSessionSelected
+    case noEnvironmentSelected
+    case clipboardDidNotContainCommand
 }
